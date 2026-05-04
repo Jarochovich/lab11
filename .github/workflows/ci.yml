@@ -7,52 +7,94 @@ on:
     branches: [ main ]
 
 jobs:
-  test:
+  # ============================================================
+  # БЛОК 1: СБОРКА И ТЕСТИРОВАНИЕ
+  # ============================================================
+  build-and-test:
     runs-on: ubuntu-latest
     
     steps:
+      # 1. Клонирование кода
       - name: Checkout code
         uses: actions/checkout@v4
       
+      # 2. Установка Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20.x'
       
+      # 3. Установка зависимостей (frontend)
       - name: Install dependencies
         run: npm install
       
+      # 4. Сборка React приложения
       - name: Build React app
         run: npm run build
       
-      - name: Run tests
+      # 5. Запуск unit-тестов (Jest + React Testing Library)
+      - name: Run unit tests
         run: npm test -- --watchAll=false --passWithNoTests
+      
+      # 6. Установка Python и зависимостей для Selenium
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install Python dependencies
+        run: |
+          pip install pytest selenium webdriver-manager
+      
+      # 7. Запуск React dev server (в фоновом режиме)
+      - name: Start React dev server
+        run: npm start &
+      
+      # 8. Ожидание загрузки сервера
+      - name: Wait for server
+        run: sleep 15
+      
+      # 9. Запуск Selenium-тестов против dev сервера
+      - name: Run Selenium tests
+        run: pytest test/ -v
 
+  # ============================================================
+  # БЛОК 2: ДЕПЛОЙ НА GITHUB PAGES (только для ветки main)
+  # ============================================================
   deploy:
     runs-on: ubuntu-latest
-    needs: test
+    needs: build-and-test
     if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: write  # 👈 Даёт права на запись в репозиторий
     
     steps:
+      # 1. Клонирование кода
       - name: Checkout code
         uses: actions/checkout@v4
       
+      # 2. Установка Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20.x'
       
+      # 3. Установка зависимостей
       - name: Install dependencies
         run: npm install
       
-      - name: Build
+      # 4. Сборка продакшн-версии
+      - name: Build for production
         run: npm run build
-
-      - name: Add .nojekyll file  
+      
+      # 5. Добавление .nojekyll (чтобы GitHub не игнорировал папки с _)
+      - name: Add .nojekyll file
         run: touch ./build/.nojekyll
       
+      # 6. Деплой на ветку gh-pages
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./build
+          force_orphan: true   # 👈 Создаёт чистую ветку gh-pages
