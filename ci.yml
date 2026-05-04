@@ -1,0 +1,101 @@
+# Имя нашего конвейера
+name: CI/CD Pipeline
+
+# Триггеры: на какие события запускаться [citation:2]
+on:
+  push:
+    branches: [main, dev] # Запускаем при пуше в main ИЛИ dev
+  pull_request:
+    branches: [main] # Запускаем при создании Pull Request в main
+
+# Переменные окружения, доступные во всех джобах
+env:
+  CI: true # Отключает интерактивный режим у React-скриптов
+
+# Список задач (jobs), которые выполняются параллельно [citation:9]
+jobs:
+  # ДЖОБА 1: Сборка и тестирование (Build & Test)
+  build-and-test:
+    runs-on: ubuntu-latest # Используем свежую Ubuntu [citation:3]
+
+    # Стратегия: тестируем на двух версиях Node.js
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x]
+
+    steps:
+      # 1. Клонируем код репозитория
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Ставим нужную версию Node.js
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: "npm" # Кешируем node_modules для скорости
+
+      # 3. Устанавливаем зависимости React-приложения (npm ci — чистая установка)
+      - name: Install frontend dependencies
+        run: npm ci
+
+      # 4. Собираем приложение (проверяем, что сборка проходит без ошибок)
+      - name: Build React app
+        run: npm run build
+
+      # 5. Запускаем встроенные тесты React (если есть — Create React App даёт один тест)
+      - name: Run React unit tests
+        run: npm test -- --watchAll=false --coverage
+
+      # 6. Устанавливаем Python и зависимости для Selenium
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Selenium dependencies
+        run: |
+          pip install selenium pytest webdriver-manager
+
+      # 7. Запускаем dev-сервер React в фоне (detached mode)
+      - name: Start React dev server
+        run: npm start &
+
+      # 8. Ждём, пока сервер поднимется (30 секунд) [citation:5]
+      - name: Wait for server
+        run: sleep 30
+
+      # 9. Запускаем Selenium тесты
+      - name: Run Selenium tests
+        run: pytest tests/ -v
+
+  # ДЖОБА 2: Деплой (только для main, после успешного build-and-test)
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build-and-test # Не запустится, если предыдущая джоба упала [citation:9]
+    if: github.ref == 'refs/heads/main' # Условие: только для ветки main
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+        env:
+          PUBLIC_URL: /your-repo-name # Нужно поменять на имя вашего репозитория
+
+      # Публикуем сборку на GitHub Pages [citation:1]
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./build
